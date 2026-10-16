@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Corrida Infinita – Raio Vermelho</title>
+<style>
+:root{--sand:#e8b86d;--road:#3a3a42;--ink:#fff7e8;--gold:#ffc83d;--red:#d62828;color-scheme:dark;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root{--sand:#c98f45;--road:#2b2b32}}
+html,body{height:100%;margin:0;background:var(--sand);overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none;font-family:"Trebuchet MS","Segoe UI",sans-serif}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--ink);pointer-events:none;padding:24px;text-shadow:0 2px 0 rgba(0,0,0,.45)}
+#ui h1{margin:0;font-size:clamp(34px,10vw,60px);font-style:italic;font-weight:900;letter-spacing:-1px;color:var(--gold);transform:skew(-6deg)}
+#ui p{margin:10px 0 0;font-size:18px;max-width:300px;line-height:1.35}
+#ui .go{margin-top:22px;padding:14px 30px;background:var(--red);border-radius:999px;font-weight:800;font-size:20px;box-shadow:0 4px 0 #7d1111}
+#hud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 10px);left:0;right:0;display:flex;justify-content:space-between;padding:0 18px;color:var(--ink);font-weight:800;font-size:20px;text-shadow:0 2px 0 rgba(0,0,0,.5);pointer-events:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><span id="sc">0 m</span><span id="bs">Recorde 0</span></div>
+<div id="ui"><h1>RAIO VERMELHO</h1><p id="msg">Toque na esquerda ou direita da tela para trocar de faixa e desvie de tudo.</p><div class="go" id="go">Toque para largar</div></div>
+<script>
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+const ui=document.getElementById('ui'),msg=document.getElementById('msg'),go=document.getElementById('go');
+const sc=document.getElementById('sc'),bsEl=document.getElementById('bs');
+let W,H,roadW,laneW,roadX,dpr;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;g.setTransform(dpr,0,0,dpr,0,0);roadW=Math.min(W*.92,420);laneW=roadW/3;roadX=(W-roadW)/2}
+addEventListener('resize',resize);resize();
+let best=0;try{best=+localStorage.getItem('rv_best')||0}catch(e){}
+bsEl.textContent='Recorde '+best;
+let state='ready',lane=1,carX=1,dist=0,speed=0,obs=[],nextRow=0,scenery=[],shake=0,t=0;
+const CW=()=>laneW*.56,CH=()=>laneW*.98,CY=()=>H*.78;
+function laneCenter(l){return roadX+laneW*(l+.5)}
+function reset(){lane=1;carX=1;dist=0;speed=330;obs=[];nextRow=-200;shake=0;scenery=[];
+ for(let i=0;i<10;i++)scenery.push({y:i*H/9,s:Math.random()<.5?0:1,o:Math.random(),k:Math.random()<.5?0:1})}
+reset();
+function start(){reset();state='play';ui.style.display='none'}
+function move(d){if(state!=='play')return;lane=Math.max(0,Math.min(2,lane+d))}
+cv.addEventListener('pointerdown',e=>{if(state!=='play'){if(state==='over'&&t<0)return;start();return}move(e.clientX<W/2?-1:1)});
+let sx=null;
+cv.addEventListener('touchstart',e=>{sx=e.touches[0].clientX},{passive:true});
+cv.addEventListener('touchend',e=>{if(sx===null)return;const dx=e.changedTouches[0].clientX-sx;sx=null;if(Math.abs(dx)>50){/*swipe tratado pelo toque*/}},{passive:true});
+addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='a')move(-1);else if(e.key==='ArrowRight'||e.key==='d')move(1);else if((e.key===' '||e.key==='Enter')&&state!=='play')start()});
+const COLORS=['#2a6fdb','#2e9e5b','#f2c230','#8e44ad','#e8e8ee'];
+function spawnRow(){
+ const free=Math.floor(Math.random()*3),row=[];
+ for(let l=0;l<3;l++){if(l===free)continue;if(Math.random()<.65){row.push({l,y:-CH()*1.5,type:Math.random()<.4?'cone':'car',c:COLORS[Math.floor(Math.random()*COLORS.length)]})}}
+ obs.push(...row);
+}
+function update(dt){
+ t+=dt;
+ if(state==='play'){
+  speed=Math.min(330+dist*.06,900);
+  dist+=speed*dt*.05;
+  nextRow-=speed*dt;
+  if(nextRow<=0){spawnRow();nextRow=Math.max(300,520-speed*.2)+Math.random()*120}
+  for(const o of obs)o.y+=(speed-(o.type==='car'?150:0))*dt;
+  obs=obs.filter(o=>o.y<H+200);
+  carX+=(lane-carX)*Math.min(1,dt*14);
+  const cx=roadX+laneW*(carX+.5),cy=CY();
+  for(const o of obs){
+   const ox=laneCenter(o.l),w=o.type==='cone'?laneW*.3:CW(),h=o.type==='cone'?laneW*.3:CH();
+   if(Math.abs(ox-cx)<(w+CW())/2*.85&&Math.abs(o.y-cy)<(h+CH())/2*.85){crash();break}
+  }
+  sc.textContent=Math.floor(dist)+' m';
+ }else{ if(state==='ready')carX=1; }
+ const sp=state==='play'?speed:120;
+ for(const s of scenery){s.y+=sp*dt;if(s.y>H+40){s.y=-40;s.o=Math.random();s.k=Math.random()<.5?0:1;s.s=Math.random()<.5?0:1}}
+ roadOff=(roadOff+sp*dt)%80;
+ if(shake>0)shake-=dt*30;
+}
+let roadOff=0;
+function crash(){
+ state='over';shake=10;t=-0.6;
+ const d=Math.floor(dist);let nb=false;
+ if(d>best){best=d;nb=true;try{localStorage.setItem('rv_best',best)}catch(e){}}
+ bsEl.textContent='Recorde '+best;
+ ui.querySelector('h1').textContent='BATEU!';
+ msg.textContent=d+' m percorridos'+(nb?' – novo recorde!':'');
+ go.textContent='Toque para tentar de novo';ui.style.display='flex';
+}
+function rr(x,y,w,h,r){g.beginPath();g.roundRect(x,y,w,h,r);g.fill()}
+function car(cx,cy,w,h,body,hero){
+ g.save();g.translate(cx,cy);
+ g.fillStyle='rgba(0,0,0,.25)';rr(-w/2+4,-h/2+6,w,h,w*.25);
+ g.fillStyle='#111';rr(-w/2-5,-h*.34,8,h*.26,3);rr(w/2-3,-h*.34,8,h*.26,3);rr(-w/2-5,h*.14,8,h*.26,3);rr(w/2-3,h*.14,8,h*.26,3);
+ g.fillStyle=body;rr(-w/2,-h/2,w,h,w*.3);
+ g.fillStyle='rgba(255,255,255,.18)';rr(-w/2+3,-h/2+3,w*.28,h-6,w*.2);
+ g.fillStyle=hero?'#1b2a49':'#1d2230';rr(-w*.36,-h*.12,w*.72,h*.26,w*.12);
+ g.fillStyle=hero?'#ffd7d7':'#cfd6e4';rr(-w*.3,-h*.4,w*.6,h*.1,4);
+ if(hero){
+  g.fillStyle='#ffc83d';
+  g.beginPath();g.moveTo(w*.12,-h*.04);g.lineTo(-w*.18,h*.2);g.lineTo(-w*.02,h*.2);g.lineTo(-w*.14,h*.46);g.lineTo(w*.2,h*.1);g.lineTo(w*.03,h*.1);g.closePath();g.fill();
+  g.fillStyle='#fff';rr(-w*.07,-h*.5,w*.14,h*.05,2);
+ }else{g.fillStyle='#ffe9a8';rr(-w*.36,h*.44,w*.16,h*.05,2);rr(w*.2,h*.44,w*.16,h*.05,2)}
+ g.restore();
+}
+function draw(){
+ const sx=shake>0?(Math.random()-.5)*shake:0,sy=shake>0?(Math.random()-.5)*shake:0;
+ g.save();g.translate(sx,sy);
+ g.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--sand');g.fillRect(-20,-20,W+40,H+40);
+ for(const s of scenery){
+  const left=s.s===0,x=left?roadX*(.2+s.o*.6):roadX+roadW+(W-roadX-roadW)*(.2+s.o*.6);
+  if(s.k){g.fillStyle='#2f7d4a';rr(x-4,s.y-16,8,32,4);rr(x-12,s.y-6,6,12,3);rr(x+6,s.y-10,6,12,3)}
+  else{g.fillStyle='#8a5a35';g.beginPath();g.ellipse(x,s.y,12,8,0,0,7);g.fill()}
+ }
+ g.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--road');g.fillRect(roadX,-20,roadW,H+40);
+ g.fillStyle='#fff7e8';g.fillRect(roadX-5,-20,5,H+40);g.fillRect(roadX+roadW,-20,5,H+40);
+ for(let l=1;l<3;l++)for(let y=-80+roadOff;y<H+80;y+=80)g.fillRect(roadX+laneW*l-3,y,6,40);
+ for(const o of obs){
+  const x=laneCenter(o.l);
+  if(o.type==='cone'){
+   const s=laneW*.3;g.fillStyle='#f26a1b';g.beginPath();g.moveTo(x,o.y-s/2);g.lineTo(x+s/2,o.y+s/2);g.lineTo(x-s/2,o.y+s/2);g.fill();
+   g.fillStyle='#fff';g.fillRect(x-s*.22,o.y+s*.02,s*.44,s*.14);
+  }else car(x,o.y,CW(),CH(),o.c,false);
+ }
+ car(roadX+laneW*(carX+.5),CY(),CW(),CH(),'#d62828',true);
+ g.restore();
+}
+let last=performance.now();
+function loop(n){const dt=Math.min(.05,(n-last)/1000);last=n;update(dt);draw();requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
